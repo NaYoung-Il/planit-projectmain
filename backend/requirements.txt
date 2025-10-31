@@ -63,3 +63,6 @@ urllib3==2.5.0
 bcrypt==4.3.0
 mysql-connector-python==9.4.0
 PyJWT==2.10.1
+bcrypt==4.0.1
+mysql-connector-python==9.0.0
+PyJWT==2.4.0
