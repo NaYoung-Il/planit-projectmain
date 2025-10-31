@@ -1,0 +1,23 @@
+# ---- Python / FastAPI ----
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+*.log
+
+# 가상환경
+venv/
+env/
+.venv/
+.env
+.env.*
+
+# pytest, coverage
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
