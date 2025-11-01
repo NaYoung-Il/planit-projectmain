@@ -21,3 +21,10 @@ htmlcov/
 *.egg-info/
 dist/
 build/
+
+# IDE / OS garbage
+.vscode/
+.idea/
+.DS_Store
+**/.DS_Store
+Thumbs.db
