@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query, UploadFile, File,Form
 from app.db.database import get_db
-from app.db.schema.review import ReviewCreate, ReviewRead, ReviewUpdate
+from app.db.schema.review import ReviewCreate, ReviewRead, ReviewUpdate, oneReviewRead
 from app.services import ReviewService,PhotoService
 from app.routers.user import Auth_Dependency, get_current_user
 from app.services.review import get_current_user_id
@@ -57,13 +57,13 @@ async def review_list(trip_id:int|None=None,
         raise e
    
 #상세보기
-@router.get('/{review_id}', response_model=ReviewRead)
+@router.get('/{review_id}', response_model=oneReviewRead)
 async def read_review(review_id:int,db:AsyncSession=Depends(get_db)):
     result = await ReviewService.get_review(db,review_id)
     return result
 
 #Update
-@router.put('/{review_id}', response_model=ReviewUpdate)
+@router.put('/{review_id}', response_model=oneReviewRead)
 async def update_review(review_id:int, 
                         review:ReviewUpdate,
                         user_id:int = Depends(get_current_user_id),
