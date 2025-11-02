@@ -1,16 +1,74 @@
+###########################################################
+# === FRONTEND (React / Vite) ===
+###########################################################
+
 # Dependencies
-node_modules/
+frontend/node_modules/
 
 # Build output
-dist/
+frontend/dist/
+frontend/build/
 
 # Env files
+frontend/.env
+frontend/.env.*.local
+
+# Editor / OS
+frontend/.vscode/
+frontend/.DS_Store
+
+
+###########################################################
+# === BACKEND (FastAPI / Python) ===
+###########################################################
+
+# Python cache / compiled files
+backend/__pycache__/
+backend/*.py[cod]
+backend/*.pyo
+backend/*.pyd
+
+# Databases / Logs
+backend/*.db
+backend/*.sqlite3
+backend/*.log
+
+# Virtual environments
+backend/venv/
+backend/env/
+backend/.venv/
+backend/.env
+backend/.env.*
+
+# Testing / Coverage
+backend/.pytest_cache/
+backend/.coverage
+backend/htmlcov/
+backend/*.egg-info/
+backend/dist/
+backend/build/
+
+
+###########################################################
+# === COMMON PROJECT-LEVEL IGNORE ===
+###########################################################
+
+# Env & log files
 .env
-.env.*.local
+*.env
+*.log
+*.local
 
-# Editor/OS
-.DS_Store
+# IDE / OS garbage
 .vscode/
+.idea/
+.DS_Store
+**/.DS_Store
+Thumbs.db
 
-# Backend folder (별도 저장소)
-backend/
+# macOS / Windows cache folders
+**/.Spotlight-V100
+**/.Trashes
+**/ehthumbs.db
+**/desktop.ini
+COMMIT_GRAPH_*.txt
