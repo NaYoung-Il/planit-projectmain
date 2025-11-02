@@ -1,15 +1,19 @@
 from fastapi import HTTPException, status
 #윤호식 추가
-from sqlalchemy import text 
+from sqlalchemy import text, select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
+from datetime import timedelta
 from app.db.crud import crud_trip, crud_city
 from app.db.model.trip import Trip
 from app.db.model.trip_day import TripDay
+from app.db.model.trip_city import TripCity
 from app.db.model.schedule import Schedule
 from app.db.model.checklist_item import ChecklistItem
 from app.db.schema.trip import TripCreate, TripUpdate
 from app.db.schema.trip_day import TripDayCreate
+from app.db.schema.trip_city import TripCityCreate, TripCityUpdate
 from app.db.schema.schedule import ScheduleCreate, ScheduleUpdate
 from app.db.schema.checklist_item import ChecklistItemCreate, ChecklistItemUpdate
 
@@ -18,12 +22,53 @@ class TripService:
     ## 1. 여행(Trip) 관련 서비스 메서드
     
     # 여행 생성(Create) - 도시 ID가 유효한지 확인
+    # 11/2 수정(나영일) : update_trip과 동일한 로직 처리
     async def create_trip(self, db: AsyncSession, trip: TripCreate) -> Trip:
-        city = await crud_city.get_city(db, trip.city_id)
-        if not city:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="도시를 찾을 수 없습니다.")
-        new_trip = await crud_trip.create_trip(db, trip)
-        return new_trip
+        # 기존 city_id 유효성 검사 삭제
+        # (새로운 M:N 관계에서는 FK 제약조건이 처리)
+        
+        # 1. Trip 기본 객체 생성
+        new_trip = Trip(
+            title=trip.title,
+            start_date=trip.start_date,
+            end_date=trip.end_date,
+            user_id=trip.user_id,
+        )
+
+        # 2. TripCity 목록 생성 (update_trip 로직 동일)
+        # (cascade에 의해 new_trip에 자동 연결됨)
+        new_trip.trip_cities = [
+            TripCity(
+                city_id=city.city_id,
+                start_date=city.start_date,
+                end_date=city.end_date
+            ) for city in trip.trip_cities
+        ]
+
+        # 4. TripDay 목록 생성 (update_trip 로직 동일)
+        # (day_sequence 기반으로 생성)
+        duration_days = (new_trip.end_date - new_trip.start_date).days + 1
+        
+        new_trip.trip_day = [
+            TripDay(day_sequence=i)
+            for i in range(1, duration_days + 1)
+        ]
+
+        # 5. 모든 객체(Trip, TripCity, TripDay)를 DB에 추가
+        try:
+            db.add(new_trip)
+            await db.flush()    # 커밋 전에 flush하여 ID를 먼저 가져옴
+            new_trip_id = new_trip.id   # 만료되지 않은 객체에서 ID를 안전하게 저장
+            await db.commit()   # 트랜잭션 최종 커밋
+        except Exception as e:
+            await db.rollback()
+            raise HTTPException(status_code=500, detail=f"DB Error on create: {e}")
+        
+        created_trip = await crud_trip.get_trip_with_relations(db, new_trip_id)
+        if not created_trip:
+            raise Exception("Failed to retrieve created trip")
+            
+        return created_trip
     
     # 여행 조회(Read)
     async def get_trip(self, db: AsyncSession, trip_id: int) -> Optional[Trip]:
@@ -37,16 +82,71 @@ class TripService:
         trips = await crud_trip.get_trips_by_user(db, user_id)
         return trips
     
-    # 여행 수정(Update) - 도시 ID가 유효한지 확인
+    # 11/2 추가(나영일)
+    async def get_trip_cities_by_trip_id(self, db: AsyncSession, trip_id: int) -> List[TripCity]:
+        trip_cities = await crud_trip.get_trip_cities(db, trip_id)
+        return trip_cities
+
+    # 여행 수정(Update) 
+    # 11/2 수정(나영일) : 서비스에서 모든 로직 처리
     async def update_trip(self, db: AsyncSession, trip_id: int, trip_update: TripUpdate) -> Optional[Trip]:
-        if trip_update.city_id:
-            city = await crud_city.get_city(db, trip_update.city_id)
-            if not city:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="도시를 찾을 수 없습니다.")
-        updated_trip = await crud_trip.update_trip(db, trip_id, trip_update)
-        if not updated_trip:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="여행을 찾을 수 없습니다.")
-        return updated_trip
+        
+        # 1. 원본 Trip을 'trip_day'와 'trip_cities' 모두와 함께 로드
+        db_trip = await crud_trip.get_trip_with_relations(db, trip_id)
+
+        if not db_trip:
+            raise HTTPException(status_code=404, detail="Trip not found")
+
+        # 2. 날짜 변경 감지를 위해 이전 기간을 계산
+        old_duration_days = (db_trip.end_date - db_trip.start_date).days + 1
+        
+        # 3. Trip의 기본 정보(제목, 시작/종료일) 업데이트
+        # 시작일이 바뀌어도 'trip_days'는 건드리지 않습니다.
+        db_trip.title = trip_update.title
+        db_trip.start_date = trip_update.start_date
+        db_trip.end_date = trip_update.end_date
+        
+        # 4. TripCity 목록 교체 (cascade가 처리)
+        db_trip.trip_cities = [
+            TripCity(
+                city_id=city.city_id,
+                start_date=city.start_date,
+                end_date=city.end_date
+            ) for city in trip_update.trip_cities
+        ]
+
+        # 5. 새로운 기간 계산
+        new_duration_days = (db_trip.end_date - db_trip.start_date).days + 1
+
+        # 6. 기간 변경 로직 수행
+        if new_duration_days < old_duration_days:
+            # Case 1: 기간 축소
+            # 새 기간보다 큰 'day_sequence'를 가진 TripDay를 목록에서 제거
+            # cascade="all, delete-orphan"이 DB에서 이들을 삭제함
+            db_trip.trip_day = [
+                day for day in db_trip.trip_day 
+                if day.day_sequence <= new_duration_days
+            ]
+            
+        elif new_duration_days > old_duration_days:
+            # Case 2: 기간 연장
+            # 기존 기간 이후부터 새 기간까지 빈 TripDay 객체를 추가
+            for i in range(old_duration_days + 1, new_duration_days + 1):
+                db_trip.trip_day.append(
+                    TripDay(day_sequence=i)
+                )
+        
+        # 7. 모든 변경사항을 한 번에 커밋
+        try:
+            db.add(db_trip)
+            await db.commit()
+            await db.refresh(db_trip)
+            await db.refresh(db_trip, attribute_names=['trip_cities', 'trip_day'])
+        except Exception as e:
+            await db.rollback()
+            raise HTTPException(status_code=500, detail=f"DB Error: {e}")
+        
+        return db_trip
     
     # 여행 삭제(Delete)
     async def delete_trip(self, db: AsyncSession, trip_id: int) -> Optional[Trip]:

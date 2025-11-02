@@ -1,9 +1,11 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
 from typing import List, Optional
 
 from app.db.model.trip import Trip
 from app.db.model.trip_day import TripDay
+from app.db.model.trip_city import TripCity
 from app.db.model.schedule import Schedule
 from app.db.model.checklist_item import ChecklistItem
 from app.db.schema.trip import TripCreate, TripUpdate
@@ -22,13 +24,47 @@ async def create_trip(db: AsyncSession, trip: TripCreate) -> Trip:
     return db_trip
 
 # 여행 조회(Read)
+# 11/2 수정(나영일) : Trip을 조회할 때 selectinload를 사용해 trip_cities와 그 안의 city까지 "Eager Loading"으로 한 번에 불러와야 한다.
 async def get_trip(db: AsyncSession, trip_id: int) -> Optional[Trip]:
-    result = await db.execute(select(Trip).filter(Trip.id == trip_id))
+    stmt = select(Trip).where(Trip.id == trip_id).options(
+        # Trip을 로드할 때, 'trip_cities' 관계를 미리 로드하고,
+        # 그 'trip_cities'의 'city' 관계까지 미리 로드합니다.
+        selectinload(Trip.trip_cities).selectinload(TripCity.city)
+    )
+    result = await db.execute(stmt)
     return result.scalars().first()
 
 # 특정 사용자의 모든 여행 조회(Read)
+# 11/2 수정(나영일) : Trip을 조회할 때 selectinload를 사용해 trip_cities와 그 안의 city까지 "Eager Loading"으로 한 번에 불러와야 한다.
 async def get_trips_by_user(db: AsyncSession, user_id: int) -> List[Trip]:
-    result = await db.execute(select(Trip).filter(Trip.user_id == user_id))
+    stmt = select(Trip).where(Trip.user_id == user_id).options(
+        # Trip을 로드할 때, 'trip_cities' 관계를 미리 로드하고,
+        # 그 'trip_cities'의 'city' 관계까지 미리 로드합니다.
+        selectinload(Trip.trip_cities).selectinload(TripCity.city)
+    )
+        
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+# 11/2 추가(나영일)
+async def get_trip_with_relations(db: AsyncSession, trip_id: int) -> Optional[Trip]:
+
+    # Trip을 가져올 때, 'trip_cities'와 'trip_day'를 Eager Loading으로 함께 가져온다.
+    stmt = select(Trip).where(Trip.id == trip_id).options(
+        selectinload(Trip.trip_cities).selectinload(TripCity.city), # TripCity와 그 안의 City까지 Join
+        selectinload(Trip.trip_day) # TripDay Join
+    )
+    result = await db.execute(stmt)
+    return result.scalars().first()
+
+async def get_trip_cities(db: AsyncSession, trip_id: int) -> List[TripCity]:
+    # Trip에 속한 도시 목록만 반환한다.
+    stmt = select(TripCity).where(
+            TripCity.trip_id == trip_id
+        ).options(
+            selectinload(TripCity.city) # City 정보 Join
+        )
+    result = await db.execute(stmt)
     return result.scalars().all()
 
 # 여행 수정(Update)

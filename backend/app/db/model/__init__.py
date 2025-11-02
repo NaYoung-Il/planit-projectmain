@@ -5,6 +5,7 @@ from .user import User
 #trip
 from .trip import Trip
 from .trip_day import TripDay
+from .trip_city import TripCity
 from .schedule import Schedule
 from .checklist_item import ChecklistItem
 from .cities import City

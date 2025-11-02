@@ -8,6 +8,9 @@ import { useTrip } from '../hooks/useTrip'
 import { useCity } from '../hooks/useCity'
 import { useAuth } from '../hooks/useAuth'
 import dayjs from 'dayjs'
+import isBetween from 'dayjs/plugin/isBetween'
+
+dayjs.extend(isBetween)
 
 export default function TripInfoEdit() {
   const nav = useNavigate()
@@ -39,6 +42,10 @@ export default function TripInfoEdit() {
   // 여행별 체크리스트
   const [checklists, setChecklists] = useState([])
 
+  // 11/2 추가(나영일) : 삭제할 항목의 ID를 임시 저장할 State
+  const [checklistsToDelete, setChecklistsToDelete] = useState([])
+  const [schedulesToDelete, setSchedulesToDelete] = useState([])
+
   // 원본 데이터 보관 (변경 감지용)
   const [originalData, setOriginalData] = useState({
     startDate: '',
@@ -48,6 +55,7 @@ export default function TripInfoEdit() {
 
   const {
     getTrip,
+    getTripCitiesByTripId, // 11/2 수정 : useTrip 훅에 추가
     getTripDays,
     getSchedulesByDay,
     getChecklistItemsByTrip,
@@ -94,53 +102,43 @@ export default function TripInfoEdit() {
     loadTripData()
   }, [id])
 
+  // 11/2 수정(나영일) : trip.city_id 대신 trip_id에 연결된 trip_cities 목록을 가져오도록 변경
   const loadTripData = async () => {
     try {
       setIsLoadingData(true)
 
       const trip = await getTrip(id)
       setTripName(trip.title)
+      setStartDate(trip.start_date?.split('T')[0])
+      setEndDate(trip.end_date?.split('T')[0])
 
       const fetchedTripDays = await getTripDays(id)
       setTripDays(fetchedTripDays)
 
-      // citySchedules 복원
-      const city = await getCity(trip.city_id)
-      setCountry(city.ko_country)
+      // 수정 : city_id 대신 trip_cities 목록을 가져옴
+      const fetchedTripCities = await getTripCitiesByTripId(id)
 
-      // TripDay 날짜 범위로 citySchedules 추정
-      const restoredCitySchedules = fetchedTripDays.length > 0 ? [{
-        id: crypto.randomUUID(),
-        city: city.city_name,
-        ko_name: city.ko_name,
-        startDate: fetchedTripDays[0].day_date,
-        endDate: fetchedTripDays[fetchedTripDays.length - 1].day_date
-      }] : [{ id: crypto.randomUUID(), city: '', ko_name: '', startDate: '', endDate: '' }]
+      // 수정 : fetchedTripCities (배열)을 기반으로 citySchedules 상태 복원
+      const restoredCitySchedules = fetchedTripCities.map(tc => {
+        // 백엔드 API가 tc.city 객체를 포함(join)해서 보내준다고 가정
+        return {
+          id: tc.id, // DB의 실제 ID (crypto.randomUUID() 대신)
+          city: tc.city.city_name, // 영문명
+          city_id: tc.city.id,     // City의 ID
+          ko_name: tc.city.ko_name,  // 한글명
+          startDate: tc.start_date,
+          endDate: tc.end_date
+        }
+      })
+      
+      setCitySchedules(restoredCitySchedules.length > 0 ? restoredCitySchedules 
+        : [{ id: crypto.randomUUID(), city: '', ko_name: '', 
+          startDate: '', endDate: '' }])
 
-      setStartDate(trip.start_date)
-      setEndDate(trip.end_date)
-      setCitySchedules(restoredCitySchedules)
-
-      // // citySchedules 복원 (TripDay에서 도시 정보 가져오기) - TripDay에 city_id 없음
-      // const citySchedulesMap = {}
-      // for (const tripDay of fetchedTripDays) {
-      //   const city = await getCity(tripDay.city_id)
-      //   const cityName = city.city_name
-
-      //   if (!citySchedulesMap[cityName]) {
-      //     citySchedulesMap[cityName] = {
-      //       id: crypto.randomUUID(),
-      //       city: cityName,
-      //       startDate: tripDay.day_date,
-      //       endDate: tripDay.day_date
-      //     }
-      //   } else {
-      //     citySchedulesMap[cityName].endDate = tripDay.day_date
-      //   }
-      // }
-
-      // const restoredCitySchedules = Object.values(citySchedulesMap)
-      // setCitySchedules(restoredCitySchedules.length > 0 ? restoredCitySchedules : [{ id: crypto.randomUUID(), city: '', startDate: '', endDate: '' }])
+      // 수정 : Country 정보는 첫 번째 도시를 기준으로 설정
+      if (fetchedTripCities.length > 0) {
+        setCountry(fetchedTripCities[0].city.ko_country)
+      }
 
       // 원본 데이터 저장
       setOriginalData({
@@ -157,26 +155,26 @@ export default function TripInfoEdit() {
         isNew: false
       })))
 
-      // 일자별 일정 조회
+      // 일자별 일정 조회 
+      // 11/2 수정(나영일) : Key를 day_date -> day_sequence로 변경
       const allDayDetails = {}
       for (const tripDay of fetchedTripDays) {
-        const date = tripDay.day_date
+        const sequence = tripDay.day_sequence
         const schedules = await getSchedulesByDay(tripDay.id)
 
-        allDayDetails[date] = {
+        allDayDetails[sequence] = {
           tripDayId: tripDay.id,
           schedules: schedules.map(schedule => ({
             ...schedule,
             id: schedule.id || crypto.randomUUID(),
             start_time: schedule.start_time,
             end_time: schedule.end_time,
-            place: schedule.place_id,
+            place: schedule.place_id ?? '',
             isNew: false
           }))
         }
       }
-
-      setDayDetails(allDayDetails)
+      setDayDetails(allDayDetails);
     } catch (err) {
       console.error('여행 데이터 로드 실패:', err)
       alert('여행 데이터를 불러오는데 실패했습니다.')
@@ -187,59 +185,44 @@ export default function TripInfoEdit() {
   }
 
   // 일자별 목록 생성
+  // 11/2 수정(나영일) : 날짜를 동적으로 계산
   const getDaysList = () => {
-    const days = []
-    citySchedules.forEach(schedule => {
-      if (schedule.startDate && schedule.endDate && schedule.city) {
-        let current = dayjs(schedule.startDate)
-        const end = dayjs(schedule.endDate)
-        while (current.isBefore(end) || current.isSame(end, 'day')) {
-          days.push({
-            date: current.format('YYYY-MM-DD'),
-            city: schedule.ko_name, // 한글명 출력
-            dayNumber: days.length + 1
-          })
-          current = current.add(1, 'day')
-        }
-      }
-    })
-    return days
-  }
+    if (!startDate || !endDate) return [];
 
-  // 일정 초기화 확인
-  const checkAndResetSchedule = (field) => {
-    if (!isEditMode) return true
+    const days = [];
+    let current = dayjs(startDate);
+    const end = dayjs(endDate);
+    let dayNumber = 1;
 
-    const message = '수정 시 일자별 세부일정이 초기화됩니다. 계속 진행하시겠습니까?'
-    const confirmed = window.confirm(message)
+    while (current.isBefore(end) || current.isSame(end, 'day')) {
+      const dateStr = current.format('YYYY-MM-DD');
+      
+      // 개선 : 이 날짜가 어떤 도시에 속하는지 찾기
+      const citySchedule = citySchedules.find(cs => 
+        dayjs(dateStr).isBetween(cs.startDate, cs.endDate, 'day', '[]')
+      );
 
-    if (confirmed) {
-      setDayDetails({})
-      setHasResetWarningShown(true)
+      days.push({
+        date: dateStr, // 동적으로 계산된 실제 날짜
+        city: citySchedule?.ko_name || '도시 미정',
+        dayNumber: dayNumber // 1, 2, 3...
+      });
+      
+      current = current.add(1, 'day');
+      dayNumber++;
     }
+    return days;
+  };
 
-    return confirmed
-  }
+  // 11/2 수정(나영일) : 일정 초기화 확인 로직 삭제
 
   // Step 1 핸들러
   const handleStartDateChange = (e) => {
-    if (originalData.startDate !== e.target.value) {
-      if (checkAndResetSchedule('startDate')) {
-        setStartDate(e.target.value)
-      }
-    } else {
-      setStartDate(e.target.value)
-    }
+    setStartDate(e.target.value)
   }
 
   const handleEndDateChange = (e) => {
-    if (originalData.endDate !== e.target.value) {
-      if (checkAndResetSchedule('endDate')) {
-        setEndDate(e.target.value)
-      }
-    } else {
-      setEndDate(e.target.value)
-    }
+    setEndDate(e.target.value)
   }
 
   // Step 2 핸들러
@@ -247,6 +230,7 @@ export default function TripInfoEdit() {
     setCitySchedules([...citySchedules, {
       id: crypto.randomUUID(),
       city: '',
+      city_id: null, // 추가
       ko_name: '',
       startDate: '',
       endDate: ''
@@ -260,24 +244,22 @@ export default function TripInfoEdit() {
     }
   }
 
+  // 11/2 수정(나영일) : city를 선택할 때 city_id도 함께 state에 저장하도록 변경
   const updateCitySchedule = (id, field, value) => {
-    const oldSchedule = citySchedules.find(s => s.id === id)
-    const originalSchedule = originalData.citySchedules.find(s => s.city === oldSchedule.city)
 
-    let needsReset = false
-    if (originalSchedule) {
-      if (field === 'city' && originalSchedule.city !== value) needsReset = true
-      if (field === 'startDate' && originalSchedule.startDate !== value) needsReset = true
-      if (field === 'endDate' && originalSchedule.endDate !== value) needsReset = true
+    // 수정 : 도시 선택 시 city_id와 ko_name을 함께 저장
+    if (field === 'city') {
+      const selectedCity = cities.find(c => c.city_name === value)
+      setCitySchedules(citySchedules.map(s =>
+        s.id === id 
+          ? { ...s, city: value, city_id: selectedCity?.id, ko_name: selectedCity?.ko_name } 
+          : s
+      ))
+    } else {
+      setCitySchedules(citySchedules.map(s =>
+        s.id === id ? { ...s, [field]: value } : s
+      ))
     }
-
-    if (needsReset && !checkAndResetSchedule('citySchedule')) {
-      return
-    }
-
-    setCitySchedules(citySchedules.map(s =>
-      s.id === id ? { ...s, [field]: value } : s
-    ))
   }
 
   // Step 3 핸들러
@@ -310,40 +292,52 @@ export default function TripInfoEdit() {
 
   // 체크리스트 삭제
   const handleRemoveCheck = (itemId) => {
+    // 11/2 수정 : 삭제할 항목이 'isNew' (새 항목)가 아닌지 확인
+    const itemToRemove = checklists.find(item => item.id === itemId);
+    if (itemToRemove && !itemToRemove.isNew) {
+      // DB에 저장된 항목이면 '삭제 목록'에 ID 추가
+      setChecklistsToDelete(prev => [...prev, itemId]);
+    }
     setChecklists(checklists.filter(item => item.id !== itemId))
   }
 
-  const addSchedule = (date) => {
+  const addSchedule = (dayNumber) => {
     setDayDetails(prev => ({
       ...prev,
-      [date]: {
-        ...prev[date],
+      [dayNumber]: {
+        ...prev[dayNumber],
         schedules: [
-          ...(prev[date]?.schedules || []),
+          ...(prev[dayNumber]?.schedules || []),
           { id: crypto.randomUUID(), schedule_content: '', start_time: '', end_time: '', place: '', isNew: true }
         ]
       }
     }))
   }
 
-  const handleUpdateSchedule = (date, itemId, field, value) => {
+  const handleUpdateSchedule = (dayNumber, itemId, field, value) => {
     setDayDetails(prev => ({
       ...prev,
-      [date]: {
-        ...prev[date],
-        schedules: (prev[date]?.schedules || []).map(item =>
+      [dayNumber]: {
+        ...prev[dayNumber],
+        schedules: (prev[dayNumber]?.schedules || []).map(item =>
           item.id === itemId ? { ...item, [field]: value } : item
         )
       }
     }))
   }
 
-  const handleRemoveSchedule = (date, itemId) => {
+  const handleRemoveSchedule = (dayNumber, itemId) => {
+    // 수정 : 삭제할 항목 찾기
+    const itemToRemove = dayDetails[dayNumber]?.schedules.find(item => item.id === itemId);
+    if (itemToRemove && !itemToRemove.isNew) {
+      // DB에 저장된 항목이면 '삭제 목록'에 ID 추가
+      setSchedulesToDelete(prev => [...prev, itemId]);
+    }
     setDayDetails(prev => ({
       ...prev,
-      [date]: {
-        ...prev[date],
-        schedules: (prev[date]?.schedules || []).filter(item => item.id !== itemId)
+      [dayNumber]: {
+        ...prev[dayNumber],
+        schedules: (prev[dayNumber]?.schedules || []).filter(item => item.id !== itemId)
       }
     }))
   }
@@ -362,43 +356,57 @@ export default function TripInfoEdit() {
     }
   }
 
-  // 수정 완료
+  // 11/2 수정(나영일) : 여행 수정 제출 핸들러
+  // TripDay와 Schedule을 수동으로 삭제/생성하는 모든 코드 제거
   const handleSubmit = async () => {
     try {
       const user = await getCurrentUser()
+      
+      // 삭제할 Schedule과 ChecklistItem 처리
+      if (schedulesToDelete.length > 0) {
+        await Promise.all(schedulesToDelete.map(id => deleteSchedule(id)));
+        setSchedulesToDelete([]); // 삭제 목록 비우기
+      }
+      if (checklistsToDelete.length > 0) {
+        await Promise.all(checklistsToDelete.map(id => deleteChecklistItem(id)));
+        setChecklistsToDelete([]); // 삭제 목록 비우기
+      }
 
-      // 여행 기본 정보 수정
-      await updateTrip(id, {
+      const tripCitiesPayload = citySchedules.map(cs => ({
+        city_id: cs.city_id,
+        start_date: cs.startDate,
+        end_date: cs.endDate
+      }))
+      
+      // 유효성 검사 로직 -> 모든 도시가 선택되었는지 확인 (city_id가 null/undefined가 아닌지)
+      const hasInvalidCity = tripCitiesPayload.some(city => !city.city_id);
+      if (hasInvalidCity) {
+        alert('모든 도시별 일정에 도시를 선택해주세요.');
+        return; // 전송 중단
+      }
+
+      const tripUpdatePayload = {
         title: tripName,
         start_date: startDate,
         end_date: endDate,
-        user_id: user.id,
-        city_id: (await getTrip(id)).city_id
+        trip_cities: tripCitiesPayload, // 검증된 배열 사용
+      }
+
+      // 수정 : 백엔드 API 한 번 호출로 Trip, TripCity, TripDay 모두 업데이트
+      // 백엔드 update_trip 서비스가 모든 로직을 처리
+      await updateTrip(id, tripUpdatePayload)
+
+      // 백엔드에서 TripDay가 변경되었을 수 있으니, 최신 데이터를 다시 불러옴
+      const newTripDays = await getTripDays(id);
+      const dayIdMap = new Map(); // key: day_sequence, value: trip_day.id
+      newTripDays.forEach(td => {
+        dayIdMap.set(td.day_sequence, td.id);
       })
 
-      // 일자/도시 변경 시 TripDay, Schedule, ChecklistItem 전부 삭제 후 재생성
-      const hasDateOrCityChanged =
-        originalData.startDate !== startDate ||
-        originalData.endDate !== endDate ||
-        JSON.stringify(originalData.citySchedules) !== JSON.stringify(citySchedules)
-
-      if (hasDateOrCityChanged) {
-        // 기존 데이터 삭제
-        for (const tripDay of tripDays) {
-          const schedules = await getSchedulesByDay(tripDay.id)
-          for (const schedule of schedules) {
-            await deleteSchedule(schedule.id)
-          }
-        }
-
-        // 체크리스트 삭제
-        const oldChecklists = await getChecklistItemsByTrip(id)
-        for (const checklist of oldChecklists) {
-          await deleteChecklistItem(checklist.id)
-        }
-
-        // 체크리스트 재생성
-        for (const item of checklists) {
+      // 수정 : hasDateOrCityChanged 로직 삭제, if-else 없이 모두 처리
+      // 체크리스트 수정
+      for (const item of checklists) {
+        if (item.isNew) {
           if (item.item_name.trim()) {
             await createChecklistItem({
               trip_id: parseInt(id),
@@ -406,22 +414,33 @@ export default function TripInfoEdit() {
               is_checked: item.is_checked
             })
           }
-        }
-
-        // 새로운 데이터 생성
-        const daysList = getDaysList()
-        for (const day of daysList) {
-          const tripDay = await createTripDay({
-            trip_id: parseInt(id),
-            day_sequence: day.dayNumber,
-            day_date: day.date
+        } else {
+          await updateChecklistItem(item.id, {
+            item_name: item.item_name,
+            is_checked: item.is_checked
           })
+        }
+      }
 
-          const schedules = dayDetails[day.date]?.schedules || []
-          for (const schedule of schedules) {
+      // 스케줄만 수정
+      
+      const daysList = getDaysList();
+
+      for (const day of daysList) {
+        const sequence = day.dayNumber;
+        const details = dayDetails[sequence]; // 프론트 state에서 일정 가져오기
+
+        // 백엔드에서 최신 trip_day.id 가져오기
+        const currentTripDayId = dayIdMap.get(sequence);
+
+        if (!currentTripDayId) continue; // 축소되어 삭제된 날
+
+        // 스케줄
+        for (const schedule of details?.schedules || []) {
+          if (schedule.isNew) {
             if (schedule.schedule_content.trim()) {
               await createSchedule({
-                trip_day_id: tripDay.id,
+                trip_day_id: currentTripDayId,
                 schedule_content: schedule.schedule_content,
                 start_time: schedule.start_time || null,
                 end_time: schedule.end_time || null,
@@ -429,62 +448,32 @@ export default function TripInfoEdit() {
                 schedule_datetime: new Date().toISOString()
               })
             }
-          }
-        }
-      } else {
-        // 체크리스트 수정
-        for (const item of checklists) {
-          if (item.isNew) {
-            if (item.item_name.trim()) {
-              await createChecklistItem({
-                trip_id: parseInt(id),
-                item_name: item.item_name,
-                is_checked: item.is_checked
-              })
-            }
           } else {
-            await updateChecklistItem(item.id, {
-              item_name: item.item_name,
-              is_checked: item.is_checked
+            await updateSchedule(schedule.id, {
+              schedule_content: schedule.schedule_content,
+              start_time: schedule.start_time || null,
+              end_time: schedule.end_time || null,
+              place_id: null
             })
           }
         }
-
-        // 스케줄만 수정
-        for (const date in dayDetails) {
-          const details = dayDetails[date]
-
-          // 스케줄
-          for (const schedule of details.schedules || []) {
-            if (schedule.isNew) {
-              if (schedule.schedule_content.trim()) {
-                await createSchedule({
-                  trip_day_id: details.tripDayId,
-                  schedule_content: schedule.schedule_content,
-                  start_time: schedule.start_time || null,
-                  end_time: schedule.end_time || null,
-                  place_id: null,
-                  schedule_datetime: new Date().toISOString()
-                })
-              }
-            } else {
-              await updateSchedule(schedule.id, {
-                schedule_content: schedule.schedule_content,
-                start_time: schedule.start_time || null,
-                end_time: schedule.end_time || null,
-                place_id: null
-              })
-            }
-          }
-        }
       }
-
+      //    (참고) 삭제된 Schedule은 어떻게 처리?
+      //    프론트에서 handleRemoveSchedule 시 state에서만 지우고,
+      //    handleSubmit에서 '삭제 목록'을 따로 관리했다가
+      //    deleteSchedule(id)를 호출해야 합니다.
+      //    (현재 코드는 삭제 로직이 handleSubmit에 없음)
       alert('여행이 수정되었습니다.')
       setIsEditMode(false)
-      await loadTripData()
+      await loadTripData();
     } catch (err) {
       console.error('여행 수정 실패:', err)
-      alert('여행 수정에 실패했습니다: ' + err.message)
+      const errorDetail = err.response?.data?.detail;
+      if (errorDetail) {
+        alert('여행 수정 실패 (422): ' + JSON.stringify(errorDetail));
+      } else {
+        alert('여행 수정에 실패했습니다: ' + err.message);
+      }
     }
   }
 
@@ -627,15 +616,7 @@ export default function TripInfoEdit() {
                       <label className="block text-xs font-semibold text-text mb-1">도시</label>
                       <select
                         value={schedule.city}
-                        onChange={e => {
-                          const selectedCity = cities.find(c => c.city_name === e.target.value)
-                          // city(city_name)와 ko_name 모두 저장
-                          setCitySchedules(citySchedules.map(s =>
-                            s.id === schedule.id
-                              ? { ...s, city: e.target.value, ko_name: selectedCity?.ko_name }
-                              : s
-                          ))
-                        }}
+                        onChange={e => updateCitySchedule(schedule.id, 'city', e.target.value)}
                         required
                         className="w-full px-3 py-2 rounded-lg border border-primary-dark/20 bg-white text-text text-sm focus:outline-none focus:border-primary"
                         disabled={!country}
@@ -746,14 +727,15 @@ export default function TripInfoEdit() {
         <Separator />
 
         {/* Step 3: 일별 스케줄 */}
+        {/* 11/2 수정(나영일) : day.date 대신 day.dayNumber를 key로 사용 */}
         <div>
           <h3 className="text-lg font-semibold text-text mb-4">일별 스케줄</h3>
           <div className="flex flex-col gap-3">
             {getDaysList().map((day) => (
-              <div key={day.date} className="border border-primary-dark/20 rounded-lg bg-white overflow-hidden">
+              <div key={day.dayNumber} className="border border-primary-dark/20 rounded-lg bg-white overflow-hidden">
                 <button
                   type="button"
-                  onClick={() => setExpandedDay(expandedDay === day.date ? null : day.date)}
+                  onClick={() => setExpandedDay(expandedDay === day.dayNumber ? null : day.dayNumber)}
                   className="w-full px-4 py-3 flex items-center justify-between hover:bg-primary-dark/5 transition-colors"
                 >
                   <div className="flex items-center gap-3">
@@ -762,23 +744,23 @@ export default function TripInfoEdit() {
                     <span className="text-sm text-primary font-medium">{day.city}</span>
                   </div>
                   <span className="text-text-soft">
-                    {expandedDay === day.date ? '▲' : '▼'}
+                    {expandedDay === day.dayNumber ? '▲' : '▼'}
                   </span>
                 </button>
 
-                {expandedDay === day.date && (
+                {expandedDay === day.dayNumber && (
                   <div className="px-4 py-4 border-t border-primary-dark/10 bg-white/50">
                     {/* 시간별 일정 */}
                     <div>
                       <h4 className="text-md font-semibold text-text mb-3">시간별 일정</h4>
                       <div className="flex flex-col gap-3 mb-3">
-                        {(dayDetails[day.date]?.schedules || []).map((schedule) => (
+                        {(dayDetails[day.dayNumber]?.schedules || []).map((schedule) => (
                           <div key={schedule.id} className="p-3 border border-primary-dark/10 rounded-lg bg-white">
                             <div className="flex flex-col gap-2">
                               <input
                                 type="text"
                                 value={schedule.schedule_content}
-                                onChange={(e) => handleUpdateSchedule(day.date, schedule.id, 'schedule_content', e.target.value)}
+                                onChange={(e) => handleUpdateSchedule(day.dayNumber, schedule.id, 'schedule_content', e.target.value)}
                                 placeholder="일정 제목"
                                 className="px-3 py-2 rounded-lg border border-primary-dark/20 bg-white text-text text-sm focus:outline-none focus:border-primary font-medium"
                                 disabled={!isEditMode}
@@ -788,7 +770,7 @@ export default function TripInfoEdit() {
                                 <input
                                   type="time"
                                   value={schedule.start_time}
-                                  onChange={(e) => handleUpdateSchedule(day.date, schedule.id, 'start_time', e.target.value)}
+                                  onChange={(e) => handleUpdateSchedule(day.dayNumber, schedule.id, 'start_time', e.target.value)}
                                   placeholder="시작 시간"
                                   className="px-3 py-2 rounded-lg border border-primary-dark/20 bg-white text-text text-sm focus:outline-none focus:border-primary"
                                   disabled={!isEditMode}
@@ -796,7 +778,7 @@ export default function TripInfoEdit() {
                                 <input
                                   type="time"
                                   value={schedule.end_time}
-                                  onChange={(e) => handleUpdateSchedule(day.date, schedule.id, 'end_time', e.target.value)}
+                                  onChange={(e) => handleUpdateSchedule(day.dayNumber, schedule.id, 'end_time', e.target.value)}
                                   placeholder="종료 시간"
                                   className="px-3 py-2 rounded-lg border border-primary-dark/20 bg-white text-text text-sm focus:outline-none focus:border-primary"
                                   disabled={!isEditMode}
@@ -806,7 +788,7 @@ export default function TripInfoEdit() {
                               <input
                                 type="text"
                                 value={schedule.place}
-                                onChange={(e) => handleUpdateSchedule(day.date, schedule.id, 'place', e.target.value)}
+                                onChange={(e) => handleUpdateSchedule(day.dayNumber, schedule.id, 'place', e.target.value)}
                                 placeholder="장소"
                                 className="px-3 py-2 rounded-lg border border-primary-dark/20 bg-white text-text text-sm focus:outline-none focus:border-primary"
                                 disabled={!isEditMode}
@@ -815,7 +797,7 @@ export default function TripInfoEdit() {
                               {isEditMode && (
                                 <button
                                   type="button"
-                                  onClick={() => handleRemoveSchedule(day.date, schedule.id)}
+                                  onClick={() => handleRemoveSchedule(day.dayNumber, schedule.id)}
                                   className="text-lg hover:scale-110 transition-transform self-end"
                                   title="삭제"
                                 >
@@ -830,7 +812,7 @@ export default function TripInfoEdit() {
                         <Button
                           type="button"
                           variant="ghost"
-                          onClick={() => addSchedule(day.date)}
+                          onClick={() => addSchedule(day.dayNumber)}
                           className="text-sm"
                         >
                           + 일정 추가하기

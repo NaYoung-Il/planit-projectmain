@@ -39,6 +39,7 @@ export default function TripCreate() {
     createTripDay,
     createSchedule,
     createChecklistItem,
+    getTripDays,
     loading
   } = useTrip()
   const { getCurrentUser } = useAuth()
@@ -122,61 +123,84 @@ export default function TripCreate() {
     }))
   }
 
+  // 11/2 수정(나영일) : 여행 생성 최종 제출
   const handleSubmit = async () => {
-    const user = await getCurrentUser()
-    const mainCityName = citySchedules[0].city
+    try {
+      const user = await getCurrentUser()
+      
+      const tripCities = citySchedules.map(cs => ({
+        start_date: cs.startDate,
+        end_date: cs.endDate,
+        city_id: cs.city_id,
+      }));
 
-    // 선택한 도시 정보 조회 (city_name으로 검색)
-    const city = await getCityByName(mainCityName)
-
-    // 여행 기본 정보 생성
-    const trip = await createTrip({
-      title: tripName,
-      start_date: startDate,
-      end_date: endDate,
-      user_id: user.id,
-      city_id: city.id
-    })
-
-    const daysList = getDaysList()
-
-    // 체크리스트 항목 저장 (여행별)
-    for (const item of checklists) {
-      if (item.item_name.trim()) {
-        await createChecklistItem({
-          trip_id: trip.id,
-          item_name: item.item_name,
-          is_checked: item.is_checked
-        })
+      const trip = {
+        title: tripName,
+        start_date: startDate,
+        end_date: endDate,
+        user_id: user.id,
+        trip_cities: tripCities,
       }
-    }
 
-    // 일자별 상세 정보 저장
-    for (const day of daysList) {
-      // 일자별 여행 계획 생성
-      const tripDay = await createTripDay({
-        trip_id: trip.id,
-        day_sequence: day.dayNumber,
-        day_date: day.date
-      })
+      // 여행 정보 생성
+      const newTrip = await createTrip(trip);
+      const newTripId = newTrip.id;
 
-      // 세부 일정 저장
-      const schedules = dayDetails[day.date]?.schedules || []
-      for (const schedule of schedules) {
-        if (schedule.schedule_content.trim()) {
-          await createSchedule({
-            trip_day_id: tripDay.id,
-            schedule_content: schedule.schedule_content,
-            start_time: schedule.start_time || null,
-            end_time: schedule.end_time || null,
-            place_id: null,
-            schedule_datetime: new Date().toISOString()
+      // 11/2 수정(나영일) : 백엔드가 생성한 '새 TripDay' 목록을 가져옴
+      const newTripDays = await getTripDays(newTripId);
+      const dayIdMap = new Map();
+      newTripDays.forEach(td => {
+        dayIdMap.set(td.day_sequence, td.id);
+      });
+      
+
+      // 체크리스트 항목 저장 (여행별)
+      for (const item of checklists) {
+        if (item.item_name.trim()) {
+          await createChecklistItem({
+            trip_id: newTripId,
+            item_name: item.item_name,
+            is_checked: item.is_checked
           })
         }
       }
-    }
 
-    nav('/trips')
+      const daysList = getDaysList();
+
+      // 일자별 상세 정보 저장
+      for (const day of daysList) {
+        // 일자별 여행 계획 생성
+        const sequence = day.dayNumber;
+        const currentTripDayId = dayIdMap.get(sequence);
+        if (currentTripDayId) {
+          const schedules = dayDetails[day.date]?.schedules || []
+          // 세부 일정 저장
+          for (const schedule of schedules) {
+            if (schedule.schedule_content.trim()) {
+              await createSchedule({
+                trip_day_id: currentTripDayId,
+                schedule_content: schedule.schedule_content,
+                start_time: schedule.start_time || null,
+                end_time: schedule.end_time || null,
+                place_id: null,
+                schedule_datetime: new Date().toISOString()
+              })
+            }
+          }
+        }
+      }
+
+      nav('/trips')
+    } catch (err) {
+      console.error('여행 생성 실패:', err);
+      // 422 에러의 상세 내용을 보여줌
+      const errorDetail = err.response?.data?.detail;
+      if (errorDetail) {
+        alert('여행 생성 실패: ' + JSON.stringify(errorDetail));
+      } else {
+        alert('여행 생성에 실패했습니다: ' + err.message);
+      }
+    } 
   }
 
   return (

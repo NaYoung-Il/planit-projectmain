@@ -15,7 +15,7 @@ class City(Base):
     lon: Mapped[Optional[float]] = mapped_column(nullable=True)
     is_domestic: Mapped[Optional[bool]] = mapped_column(nullable=True)  
 
-    trip = relationship("Trip", back_populates="city")
+    trip_cities = relationship("TripCity", back_populates="city")
     place = relationship("Place", back_populates="city")
     city_weathers = relationship("CityWeather", back_populates="city")
 

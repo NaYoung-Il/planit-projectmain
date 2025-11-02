@@ -33,6 +33,7 @@ export default function TripCreate2({
     setCitySchedules([...citySchedules, {
       id: crypto.randomUUID(),
       city: '',
+      city_id: null,
       ko_name: '',
       startDate: '',
       endDate: ''
@@ -96,7 +97,10 @@ export default function TripCreate2({
                   // city(city_name 영문명)와 ko_name(한글명) 모두 저장
                   setCitySchedules(citySchedules.map(s =>
                     s.id === schedule.id
-                      ? { ...s, city: e.target.value, ko_name: selectedCity?.ko_name }
+                      ? { ...s, 
+                        city: e.target.value, 
+                        ko_name: selectedCity?.ko_name,
+                        city_id: selectedCity?.id }
                       : s
                   ))
                 }}

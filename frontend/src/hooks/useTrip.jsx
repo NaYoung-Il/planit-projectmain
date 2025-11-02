@@ -50,6 +50,19 @@ export const useTrip = () => {
     }
   }
 
+  // 11/2 추가(나영일) : 여행별 도시 목록 조회
+  const getTripCitiesByTripId = async (tripId) => {
+    try {
+      const response = await api.get(`/trips/${tripId}/cities`);
+      return response.data; // [ { id, start_date, city: { ko_name, ... } }, ... ]
+    } catch (err) {
+      console.error("Failed to fetch trip cities:", err);
+      throw err;
+    } finally {
+      setLoading(false)
+    }
+  }
+
   // 여행 수정
   const updateTrip = async (tripId, tripData) => {
     setLoading(true)
@@ -266,6 +279,7 @@ export const useTrip = () => {
     createTrip,
     getTrip,
     getTripsByUser,
+    getTripCitiesByTripId, // 11/2 추가(나영일)
     updateTrip,
     deleteTrip,
     createTripDay,

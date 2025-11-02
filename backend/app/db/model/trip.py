@@ -2,21 +2,20 @@ from app.db.database import Base
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import String, BigInteger, ForeignKey
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 class Trip(Base):
     __tablename__ = "trip"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True, index=True) 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
-    city_id: Mapped[int] = mapped_column(ForeignKey("cities.id"), nullable=False) 
     title: Mapped[str] = mapped_column(String(100), nullable=False)  
     start_date: Mapped[datetime] = mapped_column(nullable=False)  
     end_date: Mapped[Optional[datetime]] = mapped_column(nullable=True)  
 
     users = relationship("User", back_populates="trip")
-    city = relationship("City", back_populates="trip",lazy="selectin")
     trip_day = relationship("TripDay", back_populates="trip", cascade="all, delete-orphan")
+    trip_cities = relationship("TripCity", back_populates="trip", cascade="all, delete-orphan")
     checklist_item = relationship("ChecklistItem", back_populates="trip", cascade="all, delete-orphan")
     review = relationship("Review", back_populates="trip") # cascade="all, delete" orm level
 

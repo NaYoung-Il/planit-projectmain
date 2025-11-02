@@ -5,6 +5,7 @@ from app.db.database import get_db
 from app.services.trip_service import TripService
 from app.db.schema.trip import TripCreate, TripUpdate, TripInDB
 from app.db.schema.trip_day import TripDayCreate, TripDayInDB
+from app.db.schema.trip_city import TripCityCreate, TripCityUpdate, TripCityInDB
 from app.db.schema.schedule import ScheduleCreate, ScheduleUpdate, ScheduleInDB
 from app.db.schema.checklist_item import ChecklistItemCreate, ChecklistItemUpdate, ChecklistItemInDB
 
@@ -56,6 +57,12 @@ async def create_trip_day(trip_day: TripDayCreate, db: AsyncSession = Depends(ge
 @router.get("/days/{trip_id}", response_model=List[TripDayInDB])
 async def get_trip_days_by_trip(trip_id: int, db: AsyncSession = Depends(get_db)):
     return await trip_service.get_trip_days_by_trip(db, trip_id)
+
+
+# 11/2 추가(나영일) : TripCity 관련 API 엔드포인트
+@router.get("/{trip_id}/cities", response_model=List[TripCityInDB])
+async def get_trip_cities(trip_id: int, db: AsyncSession = Depends(get_db)):
+    return await trip_service.get_trip_cities_by_trip_id(db, trip_id)
 
 
 # 3. 세부 일정(Schedule) 관련 API 엔드포인트
