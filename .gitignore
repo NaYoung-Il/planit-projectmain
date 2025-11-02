@@ -71,3 +71,4 @@ Thumbs.db
 **/.Trashes
 **/ehthumbs.db
 **/desktop.ini
+COMMIT_GRAPH_*.txt
