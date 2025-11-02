@@ -207,7 +207,9 @@ export default function ReviewEdit() {
             </button>
           </div>
           <input ref={fileRef} type="file" accept="image/*" onChange={e => onUpload(e.target.files[0])} className="hidden" />
-          <img className="mt-2 max-h-[220px] max-w-full object-contain rounded-xl shadow" src={photoPreview} alt="preview" />
+          <img key={photoPreview} //조건부 렌더링추가
+          className="mt-2 max-h-[220px] max-w-full object-contain rounded-xl shadow" src={photoPreview} alt="preview"
+          onError={(e) => e.currentTarget.style.display = 'none'} />
           <Button variant="primary" type="submit">수정 완료</Button>
         </form>
       </Card>

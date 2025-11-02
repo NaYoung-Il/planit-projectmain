@@ -84,6 +84,7 @@ export default function TripCreate3({
               <div className="flex items-center gap-3">
                 <span className="font-semibold text-text">{day.dayNumber}일차</span>
                 <span className="text-sm text-text-soft">{day.date}</span>
+                <span className="text-sm text-text-soft">{day.city}</span>
           
               </div>
               <span className="text-text-soft">
