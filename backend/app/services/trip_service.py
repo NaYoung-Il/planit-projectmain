@@ -240,37 +240,52 @@ class TripService:
         items = await crud_trip.get_checklist_items_by_trip(db, trip_id)
         return items
     
-    # ✅ 특정 사용자의 가장 가까운 여행 + 도시 정보 포함 (알림용) //윤호식 추가
+    # 특정 사용자의 가장 가까운 여행 + 도시 정보 포함 (알림용) //윤호식 추가
+    # 11/2 수정(나영일) : DB 구조 변경에 맞게 쿼리 수정
     async def get_next_trip_with_city(self, db: AsyncSession, user_id: int):
-        query = text("""
-            SELECT 
-                t.id,
-                t.title,
-                t.start_date,
-                t.end_date,
-                c.city_name,
-                c.lat,
-                c.lon
-            FROM trip AS t
-            JOIN cities AS c ON t.city_id = c.id
-            WHERE t.user_id = :user_id
-            AND t.start_date >= :today
-            ORDER BY t.start_date ASC
-            LIMIT 1
-        """)
+        """
+        [수정]
+        오늘 이후에 시작하는 가장 가까운 여행 1개를 찾아,
+        M:N 관계(trip_cities)에서 첫 번째 도시 정보를 조합하여 반환합니다.
+        """
+        
+        # 1. 오늘 날짜 이후로 가장 가까운 'Trip'을 먼저 찾습니다.
+        today = date.today()
+        stmt = select(Trip).where(
+            Trip.user_id == user_id,
+            Trip.start_date >= today
+        ).order_by(Trip.start_date.asc()).limit(1) # ASC (오름차순)
+        
+        result = await db.execute(stmt)
+        next_trip = result.scalars().first()
 
-        result = await db.execute(query, {"user_id": user_id, "today": date.today()})
-        row = result.first()
-        if not row:
+        if not next_trip:
+            # 다가오는 여행이 없음
             return None
 
-    
+        # 2. 찾은 'Trip'의 ID를 사용해, Eager Loading이 적용된 전체 정보를 다시 불러옵니다.
+        trip_with_relations = await crud_trip.get_trip_with_relations(db, next_trip.id)
+
+        if not trip_with_relations:
+            return None # (오류 방지)
+
+        # 3. M:N 관계에서 첫 번째 도시 정보를 찾습니다.
+        first_city = None
+        if trip_with_relations.trip_cities:
+            # 도시별 일정을 시작일 순서로 정렬 (선택 사항)
+            trip_with_relations.trip_cities.sort(key=lambda x: x.start_date)
+            # 0번째 도시의 'city' 객체를 가져옵니다.
+            first_city = trip_with_relations.trip_cities[0].city
+
+        # 4. 프론트엔드가 기대하는 형식(기존 SQL 쿼리 참고)으로 데이터를 조합하여 반환합니다.
         return {
-            "id": row.id,
-            "title": row.title,
-            "start_date": str(row.start_date),  # ← date → str 변환
-            "end_date": str(row.end_date),
-            "city_name": row.city_name,
-            "lat": row.lat,
-            "lon": row.lon,
+            "id": trip_with_relations.id,
+            "title": trip_with_relations.title,
+            "start_date": trip_with_relations.start_date,
+            "end_date": trip_with_relations.end_date,
+            
+            # ⬇'city_id'가 아닌 'trip_cities'에서 가져온 정보
+            "city_name": first_city.ko_name if first_city else "도시 미정",
+            "lat": first_city.lat if first_city else None,
+            "lon": first_city.lon if first_city else None
         }

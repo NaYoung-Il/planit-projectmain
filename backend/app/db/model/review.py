@@ -11,6 +11,8 @@ class Review(Base):
     id:Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id:Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     trip_id:Mapped[int] = mapped_column(ForeignKey("trip.id", ondelete="CASCADE"), nullable=False)
+    # 추가 : Review가 City와 직접 연결되도록 'city_id' 컬럼 추가
+    city_id:Mapped[int] = mapped_column(ForeignKey("cities.id"), nullable=False)
     title:Mapped[str] = mapped_column(String(255),nullable=False)
     content:Mapped[str] = mapped_column(Text, nullable=False)
     rating:Mapped[int] = mapped_column(nullable=False)
@@ -18,6 +20,7 @@ class Review(Base):
     
     users = relationship("User", back_populates="review", lazy="selectin")  #     
     trip = relationship("Trip", back_populates="review", lazy="selectin") 
+    city = relationship("City", lazy="selectin")
     comments = relationship("Comment", back_populates="review", lazy="selectin", cascade="all, delete-orphan")
     likes = relationship("Like", back_populates="review", cascade="all, delete-orphan")
     photos = relationship("Photo", back_populates="review", lazy="selectin", cascade="all, delete-orphan")

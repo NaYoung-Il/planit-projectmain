@@ -1,23 +1,27 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.model import Review, Like
+from app.db.model import Review, Like, City
 from app.db.schema.review import ReviewCreate, ReviewUpdate
 from sqlalchemy import select, or_, desc, func,and_
+from sqlalchemy.orm import selectinload
 from typing import Optional
 
 
 class ReviewCrud:
 
-    #Create    
+    # Create
+    # review 생성시 city_id도 함께 받도록 수정    
     @staticmethod
     async def create(
         db:AsyncSession, 
         review_data:ReviewCreate,
         user_id: int,
-        trip_id: int) -> Review:
+        trip_id: int,
+        city_id: int) -> Review:
 
         review_dict = review_data.model_dump()
         review_dict['user_id'] = user_id
         review_dict['trip_id'] = trip_id
+        review_dict['city_id'] = city_id
         new_review = Review(**review_dict)
         db.add(new_review)
         await db.flush()
@@ -29,7 +33,12 @@ class ReviewCrud:
     async def get_id(db:AsyncSession, review_id:int) -> Optional[Review]:
         
         #리뷰객체 by_id
-        db_review = await db.get(Review, review_id)
+        stmt = select(Review).where(Review.id == review_id).options(
+            selectinload(Review.users),
+            selectinload(Review.city) # City 정보 Eager Loading
+        )
+        result = await db.execute(stmt)
+        db_review = result.scalars().first()
         if not db_review:
             return None 
         return db_review
@@ -42,7 +51,10 @@ class ReviewCrud:
                       offset:int = 0
                       ):
         #데이터선택 
-        query = select(Review).order_by(desc(Review.created_at))
+        query = select(Review).options(
+            selectinload(Review.users),
+            selectinload(Review.city) # City 정보 Eager Loading
+        ).order_by(desc(Review.created_at))
 
         #검색 기능 조건
         if search:

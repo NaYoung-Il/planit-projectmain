@@ -1,12 +1,13 @@
 from fastapi import HTTPException,status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.model import Review,Like,Trip,City, Photo
+from app.db.model import Review,Like,Trip,City, Photo, TripCity
 from app.db.schema.review import ReviewCreate, ReviewUpdate, LikeResponse, ReviewRead
-from app.db.crud import ReviewCrud, LikeCrud
+from app.db.crud import ReviewCrud, LikeCrud, crud_trip
 from app.routers.user import Auth_Dependency
 from sqlalchemy import select
 from typing import Optional
 from sqlalchemy import select, or_, desc, func
+from sqlalchemy.orm import selectinload
 from app.services.photo import PhotoService
 from app.services.comment import CommentService
 from app.core.settings import settings
@@ -28,11 +29,11 @@ async def get_current_user_id(currnet_user:Auth_Dependency):
     return user_id
 #city_name
 def add_city_name(review:Review):
-    if review.trip and review.trip.city:
-        review.city_id = review.trip.city.id
-        review.city_name = review.trip.city.city_name
+    if review.city: # 수정
+        review.city_id = review.city.id
+        review.city_name = review.city.ko_name
     else: 
-        raise HTTPException(status_code=404, detail='도시정보없음')
+        raise HTTPException(status_code=404, detail='(add_city_name) 도시정보없음')
     return review
 
 #리뷰
@@ -44,23 +45,34 @@ class ReviewService:
                      user_id:int,
                      trip_id:int,                     
                      ):
-        #trip_id 유효성 검증
-        trip = await db.get(Trip, trip_id)  #PK조회 전용
+        # 1. trip_id 유효성 검증
+        trip = await crud_trip.get_trip_with_relations(db, trip_id)
         if not trip:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail='존재하지않는 여행계획입니다')
         
-        db_review = await ReviewCrud.create(db, review_data,user_id,trip_id)
-        # await db.commit() -get_db에서 commit 관리중 -> 삭제     
-        await db.refresh(db_review)
+        # 2. 추가 :여행의 첫 번째 도시 city_id 찾기
+        city_id = None
+        if trip.trip_cities:
+            trip.trip_cities.sort(key=lambda x: x.start_date) # 날짜순 정렬
+            city_id = trip.trip_cities[0].city_id
+
+        if not city_id:
+            raise HTTPException(status_code=400, detail="리뷰를 작성할 도시가 여행에 포함되어 있지 않습니다.")
+
+        # 3. 수정 : CRUD create에 city_id 전달
+        db_review = await ReviewCrud.create(db, review_data, user_id, trip_id, city_id=city_id)
+
+        # 4. 수정 : Eager Loading된 객체를 반환하기 위해 'get_review' 재사용
+        await db.flush() # ID 확정
+        created_review_with_details = await ReviewService.get_review(db, db_review.id)
         
-        #orm 반환용 / user주입 / like_count 초기값 / city_id,cityname
-        user_review = add_username(db_review)
-        city_review = add_city_name(user_review)
-        city_review.like_counts = 0
-        # print("db_review",db_review)
-        # print("city_review",city_review)              
-       
-        return db_review        
+        # 삭제
+        # await db.refresh(db_review)
+        # user_review = add_username(db_review)
+        # city_review = add_city_name(user_review)
+        # city_review.like_counts = 0
+        
+        return created_review_with_details        
     
     #Read    
     #trip id에 해당하는 list조회(R) - 여행별 리뷰 / trip_id없을시 빈배열반환 []
