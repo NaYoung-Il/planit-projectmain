@@ -10,6 +10,7 @@ import Button from './ui/Button'
 import Card from './Card'
 import CalMini from './CalMini'
 import WeatherWidget from './WeatherWidget'
+import {getWeather, getTripWeatherMessages} from '../services/weatherService'
 
 // 앱 크롬(사이드바 + 상단바)과 로그아웃 동작 담당
 export default function Layout(){
@@ -90,6 +91,12 @@ export default function Layout(){
             <span className="w-5 text-center text-lg" aria-hidden>🗣️</span>
             <span>커뮤니티</span>
           </NavLink>
+          <NavLink to="/about" className={({isActive})=> isActive
+            ? 'no-underline px-4 py-3 rounded-xl transition-all duration-200 relative overflow-hidden flex gap-3 items-center font-semibold text-white shadow-button bg-gradient-primary'
+            : 'no-underline px-4 py-3 rounded-xl transition-all duration-200 relative overflow-hidden flex gap-3 items-center font-medium text-sidebar-link hover:bg-emerald-500/15 hover:translate-x-1'}>
+            <span className="w-5 text-center text-lg" aria-hidden>📖</span>
+            <span>소개 및 도움말</span>
+          </NavLink>
         </nav>
       </aside>
       <div className="flex flex-col h-screen overflow-y-auto [&::-webkit-scrollbar]:hidden">
@@ -163,37 +170,95 @@ function RightSidebar(){
 // 여행 일정과 날씨 정보를 합쳐 알림 목록 생성
 function BellContent(){
   const [items, setItems] = useState([])
-  const { getTripsByUser } = useTrip()
-  const { getWeather } = useWeather()
+  const [loading, setLoading]=useState(true)
+  const { getNextTrip } = useTrip()
   const { getCurrentUser } = useAuth()
+  const [nextTrip, setNextTrip] = useState(null)
 
   useEffect(()=>{
     const fetchNotifications = async () => {
       try {
+        setLoading(true)
         const user = await getCurrentUser()
-        const trips = await getTripsByUser(user.id)
-        const now = dayjs()
-        const tripNotis = trips.map(t=>{
-          const d = dayjs(t.start_date || t.start)
-          const diff = d.diff(now,'day')
-          return { text: `여행 "${t.title || t.name}" D${diff>=0?'-'+diff:'+'+Math.abs(diff)}` }
-        })
-        const w = await getWeather('Seoul')
-        const rain = (w.main||'').toLowerCase().includes('rain')
-        const wx = rain ? [{ text: '오늘 비 소식 — 우산을 챙기세요.' }] : []
-        setItems([{ text:'알림' , head:true }, ...tripNotis, ...wx])
+        if(!user) {
+          setItems([{ text: '로그인이 필요합니다.', head: true }])
+          return
+        }
+
+        const trip = await getNextTrip(user.id)
+        setNextTrip(trip)
+
+        if(!trip){
+          setItems([{text: '다가오는 여행이 없습니다.', head: true}])
+          return
+        }
+
+        const now=dayjs()
+        const startDate = dayjs(trip.start_date)
+        const endDate = dayjs(trip.end_date)
+        const diff = startDate.diff(now, 'day')
+        let notifications = [
+          { text: '🌤️ 여행 알림', head: true },
+          { text: `✈️ "${trip.title}" 여행 D-${diff}` },
+        ]
+        if (diff <= 4 && diff >= 0 && trip.city_name) {
+          const weatherMessages = await getTripWeatherMessages({
+            city_name: trip.city_name,
+            lat: trip.lat,
+            lon: trip.lon,
+            start_date: startDate.format('YYYY-MM-DD'),
+            end_date: endDate.format('YYYY-MM-DD'),
+            diffDays: diff,
+          })
+
+          console.log('🌦️ 날씨 메시지:', weatherMessages)
+          if (weatherMessages && weatherMessages.length > 0) {
+            weatherMessages.forEach((m) => {
+              notifications.push({ text: m })
+            })
+          } else {
+            notifications.push({ text: '❌ 표시할 날씨 예보가 없습니다.' })
+          }
+        }
+
+        setItems(notifications)
       } catch (err) {
         console.error('알림 조회 실패:', err)
-        setItems([{ text:'알림' , head:true }])
+        setItems([{ text: '알림 불러오기 실패', head: true }])
+      } finally {
+        setLoading(false)
       }
     }
+
     fetchNotifications()
   }, [])
+
+  if (loading) {
+    return (
+      <div className="text-sm text-text-soft p-3">
+        ☁️ 알림 불러오는 중...
+      </div>
+    )
+  }
+
   return (
     <div>
-      {items.map((n,i)=> n.head?
-        <div key={i} className="text-sm font-medium text-text-soft mb-2 flex items-center gap-2">{n.text}</div> :
-        <div key={i} className="p-3 rounded-xl bg-surface mb-2 last:mb-0 border border-primary-dark/10">{n.text}</div>
+      {items.map((n, i) =>
+        n.head ? (
+          <div
+            key={i}
+            className="text-sm font-medium text-text-soft mb-2 flex items-center gap-2"
+          >
+            {n.text}
+          </div>
+        ) : (
+          <div
+            key={i}
+            className="p-3 rounded-xl bg-surface mb-2 last:mb-0 border border-primary-dark/10 text-sm"
+          >
+            {n.text}
+          </div>
+        )
       )}
     </div>
   )

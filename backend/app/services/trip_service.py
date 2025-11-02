@@ -16,6 +16,7 @@ from app.db.schema.trip_day import TripDayCreate
 from app.db.schema.trip_city import TripCityCreate, TripCityUpdate
 from app.db.schema.schedule import ScheduleCreate, ScheduleUpdate
 from app.db.schema.checklist_item import ChecklistItemCreate, ChecklistItemUpdate
+from datetime import date
 
 class TripService:
 
@@ -242,24 +243,33 @@ class TripService:
     # ✅ 특정 사용자의 가장 가까운 여행 + 도시 정보 포함 (알림용) //윤호식 추가
     async def get_next_trip_with_city(self, db: AsyncSession, user_id: int):
         query = text("""
-            SELECT t.id, t.title, t.start_date, t.end_date,
-                   c.city_name, c.lat, c.lon
-            FROM trip t
-            JOIN cities c ON t.city_id = c.id
+            SELECT 
+                t.id,
+                t.title,
+                t.start_date,
+                t.end_date,
+                c.city_name,
+                c.lat,
+                c.lon
+            FROM trip AS t
+            JOIN cities AS c ON t.city_id = c.id
             WHERE t.user_id = :user_id
+            AND t.start_date >= :today
             ORDER BY t.start_date ASC
             LIMIT 1
         """)
-        result = await db.execute(query, {"user_id": user_id})
+
+        result = await db.execute(query, {"user_id": user_id, "today": date.today()})
         row = result.first()
         if not row:
             return None
 
+    
         return {
             "id": row.id,
             "title": row.title,
-            "start_date": row.start_date,
-            "end_date": row.end_date,
+            "start_date": str(row.start_date),  # ← date → str 변환
+            "end_date": str(row.end_date),
             "city_name": row.city_name,
             "lat": row.lat,
             "lon": row.lon,

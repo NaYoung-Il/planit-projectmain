@@ -45,7 +45,8 @@ export default function ReviewEdit() {
       if (review.photo_url) {
         setPhotoPreview(review.photo_url)
         const photos = await getPhotos(reviewId)
-        setExistingPhotoId(photos[0].photo_id)
+        // setExistingPhotoId(photos[0].photo_id)
+        setExistingPhotoId(review.photo_id)
       }
 
       const trips = await getTripsByUser(user.id)
@@ -85,31 +86,45 @@ export default function ReviewEdit() {
       rating,
       trip_id: parseInt(selectedTripId)
     }
+    console.log('삭제 조건 확인:', shouldDeletePhoto, existingPhotoId, photoFile)
 
     // 기존 사진이 있고 새 파일을 업로드하는 경우
     if (shouldDeletePhoto && existingPhotoId && photoFile) {
       await deletePhotoApi(reviewId, existingPhotoId)
       await uploadPhoto(reviewId, photoFile)
-      await updateReview(reviewId, reviewData)
-      console.log("scene 1")
+      
+      console.log("scene 1: 기존사진교체")
     }
 
     // 사진만 삭제하는 경우 (새 파일 업로드 없이)
     if (shouldDeletePhoto && existingPhotoId && !photoFile) {
       await deletePhotoApi(reviewId, existingPhotoId)
-      console.log("scene 2")
+      console.log("scene 2: 사진만 삭제")
     }
 
-    // 새 파일 업로드
-    if (!existingPhotoId && shouldDeletePhoto && photoFile) {
+    // 기존사진 없고 새 파일 업로드
+    if (!existingPhotoId && photoFile) {
       await uploadPhoto(reviewId, photoFile)
-      console.log("scene 3")
+      console.log("scene 3: 새 사진 추가")
     }
-
-    setExistingPhotoId(null)
-    await updateReview(reviewId, reviewData)
-    setLoading(false)
-    nav('/community')
+    // 리뷰 텍스트 / 평점수정 (반드시 마지막)   
+    try{ 
+        await updateReview(reviewId, reviewData)
+        console.log('리뷰 수정 완료')    
+        
+        // 수정 직후 최신 데이터 다시 불러오기
+        const refreshed = await getReview(reviewId)       // 최신 정보 다시 조회
+        console.log('갱신된 리뷰:', refreshed)
+        }
+    catch(err){
+        console.error('리뷰 수정 오류 발생:', err)
+        alert('리뷰 수정 실패')
+    }   
+    finally{
+      setLoading(false)
+      nav('/community')
+    }   
+   
   }
 
 
@@ -192,7 +207,9 @@ export default function ReviewEdit() {
             </button>
           </div>
           <input ref={fileRef} type="file" accept="image/*" onChange={e => onUpload(e.target.files[0])} className="hidden" />
-          <img className="mt-2 max-h-[220px] max-w-full object-contain rounded-xl shadow" src={photoPreview} alt="preview" />
+          <img key={photoPreview} //조건부 렌더링추가
+          className="mt-2 max-h-[220px] max-w-full object-contain rounded-xl shadow" src={photoPreview} alt="preview"
+          onError={(e) => e.currentTarget.style.display = 'none'} />
           <Button variant="primary" type="submit">수정 완료</Button>
         </form>
       </Card>

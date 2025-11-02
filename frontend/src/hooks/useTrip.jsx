@@ -273,6 +273,21 @@ export const useTrip = () => {
     }
   }
 
+  const getNextTrip = async (userId) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const response = await api.get(`/trips/next/${userId}`)
+      return response.data || null
+    } catch (err) {
+      console.error('❌ 다음 여행 조회 실패:', err)
+      setError(err.response?.data?.detail || '다음 여행 조회 실패')
+      return null
+    } finally {
+      setLoading(false)
+    }
+  }
+  
   return {
     loading,
     error,
@@ -294,5 +309,6 @@ export const useTrip = () => {
     getChecklistItemsByTrip,
     updateChecklistItem,
     deleteChecklistItem,
+    getNextTrip,
   }
 }

@@ -75,6 +75,7 @@ export const useReview = () => {
     setError(null)
     try {
       const response = await api.get(`/reviews/${reviewId}`)
+      console.log("선택된리뷰정보:",response.data)
       return response.data
     } catch (err) {
       setError(err.response?.data?.detail || '리뷰 조회 실패')

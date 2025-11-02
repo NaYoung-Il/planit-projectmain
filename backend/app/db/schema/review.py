@@ -44,11 +44,13 @@ class ReviewRead(ReviewInDB):
         city_name: str
         comments: list[CommentRead] = []
         photo_url: str | None
+        
         # file: PhotoRead | None = Field(default=None, alias="photo")
 
 class oneReviewRead(ReviewInDB):
      trip_id: int
      photo_url: str | None
+     photo_id: int | None = None
 
 ##Like
 class LikeCreate(BaseModel):
