@@ -118,15 +118,17 @@ class ReviewService:
         add_city_name(db_review)
         #like_count       
         await add_likecounts(db,db_review)
-        #photo_url 추가
+        #photo_url, photo_id 추가
         photo_result =await db.execute(select(Photo.id).where(Photo.review_id==db_review.id))
         db_photo_id = photo_result.scalar()
         # print("db_photos\.id:",db_photo_id)
-        if db_photo_id:         
+        if db_photo_id: 
+                db_review.photo_id = db_photo_id         
                 # review.photo_url=f'{settings.backend_url}/reviews/{review_id}/photos/{db_photo_id}/raw'
                 db_review.photo_url=f'http://localhost:8081/reviews/{review_id}/photos/{db_photo_id}/raw'
                 print("photo_url:",db_review.photo_url)
         else:
+            db_review.photo_id = None
             db_review.photo_url=None          
 
 
@@ -147,11 +149,20 @@ class ReviewService:
         await db.commit()
         await db.refresh(update_data)
 
-        #username
-        add_username(update_data)
-        #like_count       
-        await add_likecounts(db,update_data)
-        #comment
+        #photo_id
+        photo_result =await db.execute(select(Photo.id).where(Photo.review_id==db_review.id))
+        db_photo_id = photo_result.scalar()
+        # print("db_photos\.id:",db_photo_id)
+        if db_photo_id: 
+                db_review.photo_id = db_photo_id         
+                # review.photo_url=f'{settings.backend_url}/reviews/{review_id}/photos/{db_photo_id}/raw'
+                db_review.photo_url=f'http://localhost:8081/reviews/{review_id}/photos/{db_photo_id}/raw'
+                print("photo_url:",db_review.photo_url)
+        else:
+            db_review.photo_id = None
+            db_review.photo_url=None  
+
+        
 
         return update_data
         
