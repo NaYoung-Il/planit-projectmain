@@ -151,10 +151,12 @@ class TripService:
     
     # 여행 삭제(Delete)
     async def delete_trip(self, db: AsyncSession, trip_id: int) -> Optional[Trip]:
-        deleted_trip = await crud_trip.delete_trip(db, trip_id)
-        if not deleted_trip:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="여행을 찾을 수 없습니다.")
-        return deleted_trip
+        db_trip = await db.get(Trip, trip_id)
+        if not db_trip:
+            raise HTTPException(status_code=404, detail="Trip not found")
+        await db.delete(db_trip)
+        await db.commit()
+        return
     
     ## 2. 일자별 여행 계획(TripDay) 관련 서비스 메서드
     

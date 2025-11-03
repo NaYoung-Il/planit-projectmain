@@ -41,9 +41,10 @@ async def update_trip(trip_id: int, trip_update: TripUpdate, db: AsyncSession = 
     return await trip_service.update_trip(db, trip_id, trip_update)
 
 # 여행 삭제(Delete)
-@router.delete("/{trip_id}", response_model=TripInDB)
+@router.delete("/{trip_id}")
 async def delete_trip(trip_id: int, db: AsyncSession = Depends(get_db)):
-    return await trip_service.delete_trip(db, trip_id)
+    await trip_service.delete_trip(db, trip_id)
+    return {"detail": f"Trip {trip_id} deleted successfully"}
 
 
 # 2. 일자별 여행 계획(TripDay) 관련 API 엔드포인트
